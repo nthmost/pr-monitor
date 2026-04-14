@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config import Config, load_config, DEFAULT_CONFIG_PATH
-from github_client import GitHubAPIError, GitHubClient, parse_prs
+from github_client import GitHubAPIError, GitHubClient, parse_pr
 from models import PRStatus
 from progress import estimate_progress
 
@@ -98,42 +98,46 @@ class PRMonitor:
     def poll_all(self):
         current_files = set()
 
-        for repo_cfg in self.config.repos:
+        for pr_cfg in self.config.prs:
             try:
-                client = self.get_client(repo_cfg.identity)
-                raw = client.get_open_prs(repo_cfg.owner, repo_cfg.name, repo_cfg.max_prs)
-                prs = parse_prs(raw, repo_cfg.full_name)
+                client = self.get_client(pr_cfg.identity)
+                raw = client.get_pr(pr_cfg.owner, pr_cfg.repo, pr_cfg.number)
+                pr = parse_pr(raw, pr_cfg.full_name)
             except GitHubAPIError as e:
-                print(f"[{repo_cfg.full_name}] API error: {e}", file=sys.stderr)
+                print(f"[{pr_cfg.full_name}#{pr_cfg.number}] API error: {e}", file=sys.stderr)
                 continue
 
-            for pr in prs:
-                if not self.config.show_drafts and pr.is_draft:
-                    continue
+            if pr is None:
+                continue
 
-                # Fetch step data for in-progress checks; update duration cache
-                for check in pr.checks:
-                    key = f"{repo_cfg.full_name}/{check.name}"
-                    if check.status == "COMPLETED" and check.elapsed_seconds:
-                        self._duration_cache[key] = check.elapsed_seconds
-                    if check.status == "IN_PROGRESS" and check.workflow_run_id:
-                        try:
-                            check.jobs = client.get_workflow_run_jobs(
-                                repo_cfg.owner, repo_cfg.name, check.workflow_run_id
-                            )
-                        except GitHubAPIError:
-                            pass
-
+            # If the PR is closed/merged, remove its breadcrumb and skip
+            if pr.state != "OPEN":
                 filename = breadcrumb_filename(pr)
-                filepath = BREADCRUMB_DIR / filename
-                data = pr_to_breadcrumb(pr, self._duration_cache)
+                stale = BREADCRUMB_DIR / filename
+                if stale.exists():
+                    stale.unlink()
+                continue
 
-                with open(filepath, "w") as f:
-                    json.dump(data, f, indent=2)
+            # Fetch step data for in-progress checks; update duration cache
+            for check in pr.checks:
+                key = f"{pr_cfg.full_name}/{check.name}"
+                if check.status == "COMPLETED" and check.elapsed_seconds:
+                    self._duration_cache[key] = check.elapsed_seconds
+                if check.status == "IN_PROGRESS" and check.workflow_run_id:
+                    try:
+                        check.jobs = client.get_workflow_run_jobs(
+                            pr_cfg.owner, pr_cfg.repo, check.workflow_run_id
+                        )
+                    except GitHubAPIError:
+                        pass
 
-                current_files.add(filename)
+            filename = breadcrumb_filename(pr)
+            data = pr_to_breadcrumb(pr, self._duration_cache)
+            with open(BREADCRUMB_DIR / filename, "w") as f:
+                json.dump(data, f, indent=2)
+            current_files.add(filename)
 
-        # Remove breadcrumbs for PRs that are no longer open
+        # Remove breadcrumbs for any PRs no longer in config
         for filename in self._known_files - current_files:
             stale = BREADCRUMB_DIR / filename
             if stale.exists():

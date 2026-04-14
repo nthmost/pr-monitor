@@ -84,37 +84,34 @@ class GitHubClient:
         data = self._api("/rate_limit")
         return data.get("resources", {}).get("core", {}) if data else {}
 
-    def get_open_prs(self, owner: str, repo: str, max_prs: int = 20) -> List[Dict]:
-        """Fetch open PRs with check rollup via GraphQL. Returns raw dicts."""
+    def get_pr(self, owner: str, repo: str, number: int) -> Optional[Dict]:
+        """Fetch a single PR with check rollup via GraphQL."""
         query = """
-query($owner: String!, $repo: String!, $count: Int!) {
+query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
-    pullRequests(first: $count, states: OPEN,
-                 orderBy: {field: UPDATED_AT, direction: DESC}) {
-      nodes {
-        number
-        title
-        isDraft
-        headRefName
-        author { login }
-        commits(last: 1) {
-          nodes {
-            commit {
-              statusCheckRollup {
-                state
-                contexts(first: 50) {
-                  nodes {
-                    __typename
-                    ... on CheckRun {
-                      name
-                      status
-                      conclusion
-                      startedAt
-                      completedAt
-                      detailsUrl
-                    }
+    pullRequest(number: $number) {
+      number
+      title
+      isDraft
+      state
+      headRefName
+      author { login }
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              state
+              contexts(first: 50) {
+                nodes {
+                  __typename
+                  ... on CheckRun {
+                    name
+                    status
+                    conclusion
+                    startedAt
+                    completedAt
+                    detailsUrl
                   }
-                  pageInfo { hasNextPage endCursor }
                 }
               }
             }
@@ -125,12 +122,10 @@ query($owner: String!, $repo: String!, $count: Int!) {
   }
 }
 """
-        data = self._graphql(query, {"owner": owner, "repo": repo, "count": max_prs})
+        data = self._graphql(query, {"owner": owner, "repo": repo, "number": number})
         if not data:
-            return []
-        repo_data = data.get("repository", {})
-        nodes = repo_data.get("pullRequests", {}).get("nodes", [])
-        return nodes
+            return None
+        return data.get("repository", {}).get("pullRequest")
 
     def get_workflow_run_jobs(
         self, owner: str, repo: str, run_id: int
@@ -166,45 +161,45 @@ query($owner: String!, $repo: String!, $count: Int!) {
         return jobs
 
 
-def parse_prs(raw_nodes: List[Dict], repo_full_name: str) -> List[PRStatus]:
-    """Convert raw GraphQL PR nodes into PRStatus objects."""
-    prs = []
-    for node in raw_nodes:
-        commit_nodes = node.get("commits", {}).get("nodes", [])
-        rollup = None
-        raw_checks = []
-        if commit_nodes:
-            commit = commit_nodes[0].get("commit", {})
-            rollup_data = commit.get("statusCheckRollup")
-            if rollup_data:
-                rollup = rollup_data.get("state")
-                ctx_nodes = rollup_data.get("contexts", {}).get("nodes", [])
-                raw_checks = [c for c in ctx_nodes if c.get("__typename") == "CheckRun"]
+def parse_pr(node: Dict, repo_full_name: str) -> Optional[PRStatus]:
+    """Convert a raw GraphQL pullRequest node into a PRStatus."""
+    if not node:
+        return None
+    commit_nodes = node.get("commits", {}).get("nodes", [])
+    rollup = None
+    raw_checks = []
+    if commit_nodes:
+        commit = commit_nodes[0].get("commit", {})
+        rollup_data = commit.get("statusCheckRollup")
+        if rollup_data:
+            rollup = rollup_data.get("state")
+            ctx_nodes = rollup_data.get("contexts", {}).get("nodes", [])
+            raw_checks = [c for c in ctx_nodes if c.get("__typename") == "CheckRun"]
 
-        checks = []
-        for rc in raw_checks:
-            run_id = _extract_run_id(rc.get("detailsUrl"))
-            checks.append(CheckRun(
-                name=rc.get("name", ""),
-                status=(rc.get("status") or "QUEUED").upper(),
-                conclusion=(rc.get("conclusion") or "").upper() or None,
-                started_at=_parse_dt(rc.get("startedAt")),
-                completed_at=_parse_dt(rc.get("completedAt")),
-                details_url=rc.get("detailsUrl"),
-                workflow_run_id=run_id,
-            ))
-
-        prs.append(PRStatus(
-            repo=repo_full_name,
-            number=node["number"],
-            title=node.get("title", ""),
-            branch=node.get("headRefName", ""),
-            author=(node.get("author") or {}).get("login", ""),
-            is_draft=node.get("isDraft", False),
-            rollup_state=(rollup or "").upper() or None,
-            checks=checks,
+    checks = []
+    for rc in raw_checks:
+        run_id = _extract_run_id(rc.get("detailsUrl"))
+        checks.append(CheckRun(
+            name=rc.get("name", ""),
+            status=(rc.get("status") or "QUEUED").upper(),
+            conclusion=(rc.get("conclusion") or "").upper() or None,
+            started_at=_parse_dt(rc.get("startedAt")),
+            completed_at=_parse_dt(rc.get("completedAt")),
+            details_url=rc.get("detailsUrl"),
+            workflow_run_id=run_id,
         ))
-    return prs
+
+    return PRStatus(
+        repo=repo_full_name,
+        number=node["number"],
+        title=node.get("title", ""),
+        branch=node.get("headRefName", ""),
+        author=(node.get("author") or {}).get("login", ""),
+        is_draft=node.get("isDraft", False),
+        state=node.get("state", "OPEN"),
+        rollup_state=(rollup or "").upper() or None,
+        checks=checks,
+    )
 
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:

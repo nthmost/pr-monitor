@@ -108,6 +108,7 @@ class PRStatus:
     branch: str
     author: str
     is_draft: bool
+    state: str          # OPEN | CLOSED | MERGED
     rollup_state: str   # SUCCESS | FAILURE | PENDING | EXPECTED | ERROR | None
     checks: List[CheckRun] = field(default_factory=list)
     fetched_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
