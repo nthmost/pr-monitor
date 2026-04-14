@@ -40,7 +40,6 @@ class RepoConfig:
 class Config:
     repos: List[RepoConfig] = field(default_factory=list)
     refresh_interval: int = 30      # seconds between GitHub polls
-    display_size: str = "tiny"      # tiny | small | medium
     show_drafts: bool = True        # whether to show draft PRs
     max_completed_age_min: int = 60 # hide completed PRs older than N minutes
     cache_file: Path = field(
@@ -74,7 +73,6 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> Config:
     return Config(
         repos=repos,
         refresh_interval=raw.get("refresh_interval", 30),
-        display_size=raw.get("display_size", "tiny"),
         show_drafts=raw.get("show_drafts", True),
         max_completed_age_min=raw.get("max_completed_age_min", 60),
         cache_file=Path(raw.get("cache_file", str(Path.home() / ".pr-monitor-cache.json"))),

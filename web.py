@@ -77,7 +77,6 @@ def index():
     return render_template_string(HTML, repos=repos, identities=identities,
                                   config_path=str(CONFIG_PATH),
                                   refresh=data.get("refresh_interval", 30),
-                                  display_size=data.get("display_size", "tiny"),
                                   show_drafts=data.get("show_drafts", True))
 
 
@@ -148,7 +147,6 @@ def update_settings():
         data["refresh_interval"] = int(request.form.get("refresh_interval", 30))
     except ValueError:
         pass
-    data["display_size"] = request.form.get("display_size", "tiny")
     data["show_drafts"] = request.form.get("show_drafts") == "on"
     ensure_config_exists()
     write_config_raw(data)
@@ -323,14 +321,6 @@ myorg/myrepo"></textarea>
         <div class="field">
           <label>Refresh interval (seconds)</label>
           <input type="number" name="refresh_interval" value="{{ refresh }}" min="10" max="300" style="width:90px">
-        </div>
-        <div class="field">
-          <label>Display size</label>
-          <select name="display_size">
-            <option value="tiny"   {% if display_size == 'tiny'   %}selected{% endif %}>tiny</option>
-            <option value="small"  {% if display_size == 'small'  %}selected{% endif %}>small</option>
-            <option value="medium" {% if display_size == 'medium' %}selected{% endif %}>medium</option>
-          </select>
         </div>
         <div class="field">
           <label>&nbsp;</label>

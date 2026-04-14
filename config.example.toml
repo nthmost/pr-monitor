@@ -8,9 +8,6 @@
 # How often to poll GitHub for updated PR/CI status (seconds)
 refresh_interval = 30
 
-# Display size: "tiny" (default), "small", or "medium"
-display_size = "tiny"
-
 # Whether to show draft PRs (default: true)
 show_drafts = true
 

@@ -10,7 +10,6 @@ split terminal to see both code-level tasks and CI pipeline status.
 Usage:
     python3 pr_monitor.py                      # use ~/.pr-monitor.toml
     python3 pr_monitor.py --config ./my.toml   # custom config
-    python3 pr_monitor.py --size small         # larger display
 """
 
 import argparse
@@ -197,8 +196,8 @@ def _check_cell(check: CheckRun, repo: str, monitor: PRMonitor) -> Tuple[str, st
     return name, bar, elapsed
 
 
-def create_pr_table_tiny(prs: List[PRStatus], monitor: PRMonitor) -> Table:
-    """Tiny mode: one row per PR, single featured check shown."""
+def create_pr_table(prs: List[PRStatus], monitor: PRMonitor) -> Table:
+    """One row per PR, featuring the most interesting active check."""
     table = Table(
         title="Open Pull Requests",
         show_header=True,
@@ -245,148 +244,12 @@ def create_pr_table_tiny(prs: List[PRStatus], monitor: PRMonitor) -> Table:
     return table
 
 
-def create_pr_table_small(prs: List[PRStatus], monitor: PRMonitor) -> Table:
-    """Small mode: one row per check run (more detail)."""
-    table = Table(
-        title="Open Pull Requests — CI Checks",
-        show_header=True,
-        border_style="cyan",
-        expand=True,
-        show_lines=True,
-    )
-    table.add_column("", width=3)
-    table.add_column("PR", width=6)
-    table.add_column("Title / Branch", no_wrap=False)
-    table.add_column("Check", no_wrap=False)
-    table.add_column("Step", style="dim", no_wrap=False)
-    table.add_column("Progress", width=10)
-    table.add_column("Elapsed", width=8, style="dim")
-
-    for idx, pr in enumerate(prs):
-        if not pr.checks:
-            row_style = "bright_white" if idx % 2 == 0 else "light_coral"
-            table.add_row(
-                pr.overall_emoji,
-                f"#{pr.number}",
-                f"{_truncate(pr.title, 30)}\n[dim]{pr.branch}[/dim]",
-                "[dim]no checks[/dim]", "", render_bar(None, "dim"), "",
-                style=row_style,
-            )
-            continue
-
-        first = True
-        for check in pr.checks:
-            baseline = monitor.get_baseline(pr.repo, check.name)
-            progress = estimate_progress(check, baseline)
-            bar = render_bar(progress, check.get_color(), width=8)
-            elapsed = format_elapsed(check.elapsed_seconds)
-
-            job = check.best_job
-            step_info = ""
-            if job:
-                step_name = job.current_step_name or ""
-                if job.steps_total:
-                    step_info = f"{job.steps_done}/{job.steps_total}"
-                    if step_name:
-                        step_info += f"\n[dim]{_truncate(step_name, 20)}[/dim]"
-                elif step_name:
-                    step_info = _truncate(step_name, 20)
-
-            check_markup = f"{check.get_emoji()} {_truncate(check.name, 26)}"
-
-            if first:
-                pr_col = f"[bold]#{pr.number}[/bold]"
-                title_col = f"{_truncate(pr.title, 30)}\n[dim]{pr.branch}[/dim]"
-                status_col = pr.overall_emoji
-                first = False
-            else:
-                pr_col = ""
-                title_col = ""
-                status_col = ""
-
-            fail = (check.conclusion or "").upper() == "FAILURE"
-            row_style = "bold red" if fail else (
-                "bright_white" if idx % 2 == 0 else "light_coral"
-            )
-
-            table.add_row(
-                status_col, pr_col, title_col, check_markup,
-                step_info, bar, elapsed,
-                style=row_style,
-            )
-
-    return table
-
-
-def create_pr_table_medium(prs: List[PRStatus], monitor: PRMonitor) -> Table:
-    """Medium mode: like small but with author and branch columns."""
-    table = Table(
-        title="Open Pull Requests",
-        show_header=True,
-        border_style="cyan",
-        expand=True,
-        show_lines=True,
-    )
-    table.add_column("", width=3)
-    table.add_column("PR", width=7)
-    table.add_column("Title", no_wrap=False)
-    table.add_column("Author", width=14, style="dim")
-    table.add_column("Check", no_wrap=False)
-    table.add_column("Steps", width=8, style="dim")
-    table.add_column("Progress", width=10)
-    table.add_column("Elapsed", width=8, style="dim")
-
-    for idx, pr in enumerate(prs):
-        featured = pr.featured_check
-        if featured:
-            baseline = monitor.get_baseline(pr.repo, featured.name)
-            progress = estimate_progress(featured, baseline)
-            bar = render_bar(progress, featured.get_color(), width=8)
-            elapsed = format_elapsed(featured.elapsed_seconds)
-            job = featured.best_job
-            steps_str = f"{job.steps_done}/{job.steps_total}" if (job and job.steps_total) else ""
-            check_markup = f"{featured.get_emoji()} {_truncate(featured.name, 28)}"
-            n = len(pr.active_checks)
-            if n > 1:
-                check_markup += f"\n[dim]+{n-1} more active[/dim]"
-        else:
-            bar = render_bar(None, "dim")
-            elapsed = ""
-            steps_str = ""
-            check_markup = "[dim]no checks[/dim]"
-
-        row_style = "bold red" if (pr.rollup_state or "").upper() in ("FAILURE", "ERROR") else (
-            "bright_white" if idx % 2 == 0 else "light_coral"
-        )
-        draft = " [dim](draft)[/dim]" if pr.is_draft else ""
-        table.add_row(
-            pr.overall_emoji,
-            f"[bold]#{pr.number}[/bold]\n[dim]{pr.repo.split('/')[1]}[/dim]",
-            f"{_truncate(pr.title, 35)}{draft}\n[dim]{pr.branch}[/dim]",
-            pr.author,
-            check_markup,
-            steps_str,
-            bar,
-            elapsed,
-            style=row_style,
-        )
-
-    return table
-
-
-def create_display(monitor: PRMonitor, size: str = "tiny") -> Group:
+def create_display(monitor: PRMonitor) -> Group:
     components = [create_summary_panel(monitor)]
 
     prs = monitor.get_all_prs()
     if prs:
-        if size == "tiny":
-            components.append(create_pr_table_tiny(prs, monitor))
-        elif size == "small":
-            components.append(create_pr_table_small(prs, monitor))
-        elif size == "medium":
-            components.append(create_pr_table_medium(prs, monitor))
-        else:
-            components.append(create_pr_table_tiny(prs, monitor))
+        components.append(create_pr_table(prs, monitor))
     elif monitor.config.repos:
         components.append(Panel(
             "[green]No open PRs — all clear! 🎉[/green]",
@@ -409,12 +272,6 @@ def main():
         help=f"Path to TOML config file (default: {DEFAULT_CONFIG_PATH})",
     )
     parser.add_argument(
-        "--size",
-        choices=["tiny", "small", "medium"],
-        default=None,
-        help="Display size (overrides config)",
-    )
-    parser.add_argument(
         "--interval",
         type=float,
         default=None,
@@ -435,8 +292,6 @@ def main():
     config_path = Path(args.config).expanduser()
     config = load_config(config_path)
 
-    if args.size:
-        config.display_size = args.size
     if args.interval:
         config.refresh_interval = args.interval
     if args.no_drafts:
@@ -445,7 +300,7 @@ def main():
     if args.debug:
         console.print(f"[dim]Config: {config_path}[/dim]")
         console.print(f"[dim]Repos: {[r.full_name for r in config.repos]}[/dim]")
-        console.print(f"[dim]Refresh: {config.refresh_interval}s  Size: {config.display_size}[/dim]\n")
+        console.print(f"[dim]Refresh: {config.refresh_interval}s[/dim]\n")
 
     monitor = PRMonitor(config)
 
@@ -458,7 +313,7 @@ def main():
                 while True:
                     if monitor.seconds_until_refresh() <= 0:
                         monitor.poll_all()
-                    display = create_display(monitor, size=config.display_size)
+                    display = create_display(monitor)
                     live.update(display)
                     time.sleep(1)
     except KeyboardInterrupt:
