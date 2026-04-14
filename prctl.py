@@ -105,6 +105,8 @@ def get_all_identities() -> list[str]:
 
 
 def detect_identity(owner: str, repo: str) -> str | None:
+    """Return the identity with push access to the repo, falling back to any read access."""
+    read_fallback = None
     for identity in get_all_identities():
         token_result = subprocess.run(
             ["gh", "auth", "token", "--user", identity],
@@ -115,12 +117,15 @@ def detect_identity(owner: str, repo: str) -> str | None:
         env = _clean_env()
         env["GH_TOKEN"] = token_result.stdout.strip()
         result = subprocess.run(
-            ["gh", "api", f"/repos/{owner}/{repo}", "--jq", ".name"],
+            ["gh", "api", f"/repos/{owner}/{repo}", "--jq", ".permissions.push"],
             capture_output=True, text=True, env=env,
         )
         if result.returncode == 0:
-            return identity
-    return None
+            if result.stdout.strip() == "true":
+                return identity          # has push access — best match
+            if read_fallback is None:
+                read_fallback = identity  # can read, but no push — keep as fallback
+    return read_fallback
 
 
 # ─── Arg parsing ──────────────────────────────────────────────────────────────
