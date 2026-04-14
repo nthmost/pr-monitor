@@ -1,0 +1,33 @@
+# pr-monitor configuration
+# Copy this file to ~/.pr-monitor.toml and fill in your repos.
+#
+# Multiple GitHub identities are supported. Each repo entry specifies
+# which `gh` identity to use for authentication.
+# Make sure you've run `gh auth login` for each identity you use here.
+
+# How often to poll GitHub for updated PR/CI status (seconds)
+refresh_interval = 30
+
+# Display size: "tiny" (default), "small", or "medium"
+display_size = "tiny"
+
+# Whether to show draft PRs (default: true)
+show_drafts = true
+
+# Path to store learned CI duration baselines (improves progress estimates)
+# cache_file = "~/.pr-monitor-cache.json"
+
+# ── Add repos to watch ────────────────────────────────────────────────────────
+# Each [[repos]] block is one repository.
+# identity = the `gh auth` username to use for this repo.
+
+# [[repos]]
+# owner = "your-org"
+# name  = "your-repo"
+# identity = "your-gh-username"
+# max_prs = 20   # optional, default 20
+
+# [[repos]]
+# owner = "another-org"
+# name  = "another-repo"
+# identity = "your-other-gh-username"
